@@ -1,9 +1,10 @@
-# This script creates a survival model for different SES and smoking-status groups. Wave 1 is the baseline, but some baseline data is taken from wave 0 HSE data. Extra packages required: plyr (for 'revalue'), dplyr (for 'mutate'), survival (for regression models)
+# This script creates a survival model for different SES and smoking-status groups. Wave 1 is the baseline, but some baseline data is taken from 'wave 0' HSE data (1998-2001) and physical activity baseline data is taken from wave 2. Extra packages required: plyr (for 'revalue'), dplyr (for 'mutate'), survival (for hazard models)
 
 library(plyr)
 library(dplyr)
+library(survival)
 
-# import. Waves 2+ are not used
+# import. Waves 3-6 are not used except in the 'tracker' showing which each individual responded to.
 
 wave0_1998 <- read.table("wave_0_1998_data.tab", sep="\t", header = T)
 wave0_1999 <- read.table("wave_0_1999_data.tab", sep="\t", header = T)
@@ -88,7 +89,7 @@ tracker$finalyear <- tracker$finalyear - 1
 tracker$mortcomplete <- ifelse((tracker$mortwave == tracker$finalyear) & tracker$streak == TRUE, 1, 0)
 tracker$complete <- ifelse(tracker$mortcomplete == 1 | tracker$numwaves == 7, 1, 0)
 
-# create dataset for analysis: age, sex, ethnicity (NOT YET INCLUDED), SES measures, current smoking, pack-years, age started, age stopped, mortstat, maincod, mortwave; NOT YET SES-RELATED FACTORS, PASSIVE SMOKING, OBESITY, PHYSICAL ACTIVITY, ETC.
+# create dataset for analysis: age, sex, ethnicity (NOT YET INCLUDED), SES measures, current smoking, pack-years, age started, age stopped, mortstat, maincod, mortwave; ARE THERE FURTHER SES-RELATED FACTORS?
 
 tracker2 <- tracker[tracker$wave1 == T,] #only those in Wave 1
 elsa <- data.frame(idauniq = tracker2$idauniq, wave0 = tracker2$wave0)
@@ -183,7 +184,3 @@ adj <- coxph.out(adj)
 
 full.out <- cbind(unadj, adj_basic[,2], adj_SES[,2], adj[,2])
 full.out <- data.frame(unadjusted = full.out[,2], age_sex_adj = full.out[,3], SES_adj = full.out[,4], fully_adj = full.out[,5], row.names = full.out[,1])
-
-# survival curve
-
-# mulitnomial regression...

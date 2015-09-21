@@ -1,8 +1,9 @@
-# This script creates a survival model for different SES and smoking-status groups. Wave 1 is the baseline, but some baseline data is taken from 'wave 0' HSE data (1998-2001) and physical activity baseline data is taken from wave 2. Extra packages required: plyr (for 'revalue'), dplyr (for 'mutate'), survival (for hazard models)
+# This script creates a survival model for different SES and smoking-status groups. Wave 1 is the baseline, but some baseline data is taken from 'wave 0' HSE data (1998-2001) and physical activity baseline data is taken from wave 2.
 
-library(plyr)
-library(dplyr)
-library(survival)
+library(plyr) # for 'revalue'
+library(dplyr) # for 'mutate'
+library(survival) # for hazard models
+library(RColorBrewer) # for colouring in charts 
 
 # import. Waves 3-6 are not used except in the 'tracker' showing which each individual responded to.
 
@@ -104,7 +105,7 @@ elsa$wealth5 <- factor(elsa$wealth5, levels = c("5", "4", "3", "2", "1", "0"))
 income.missing <- is.na(elsa$income5)
 elsa$income5 <- as.factor(ifelse(income.missing, 0, elsa$income5))
 elsa$income5 <- factor(elsa$income5, levels = c("5", "4", "3", "2", "1", "0"))
-wave0.sub <- subset(wave0, select = c("idauniq", "sex", "age_group", "cigst1", "packyrs_all", "packyrs_grp", "status_packyrs", "startsmk", "educend", "sclass", "bmivg6", "passm"))
+wave0.sub <- subset(wave0, select = c("idauniq", "sex", "ager", "age_group", "cigst1", "packyrs_all", "packyrs_grp", "status_packyrs", "startsmk", "educend", "sclass", "bmivg6", "passm"))
 elsa <- merge(elsa, wave0.sub, by = "idauniq")
 
 sclass.missing <- is.na(elsa$sclass)
@@ -123,6 +124,8 @@ elsa <- merge(elsa, wave2.der.sub, by = "idauniq")
 elsa$palevel <- revalue(as.factor(elsa$palevel), c("-8" = "0", "-6" = "0", "-1" = "0", "0" = "sedentary", "1" = "low", "2" = "moderate", "3" = "high"))
 elsa$palevel <- relevel(elsa$palevel, ref = "high")
 
+elsa$passm <- (factor(elsa$passm, levels = c("no", "yes")))
+
 # prototype survival analysis. Cox's model allows for time-dependent covariates (e.g. smoking status at each follow-up). However, historical smoking is likely to be a bigger cause of disease than smoking within the follow-up survey year, so this was used as the smoking measure. Does this seem right?
 
 elsa <- elsa[elsa$mortstat > 0,] # excludes no permission or 'dead from other sources'
@@ -137,9 +140,9 @@ coxph.out <- function(model) {
 	x <- summary(model)
 	x1 <- x$conf.int
 	x2 <- coef(x)
-	expcoef <- round(x1[,1],2)
-	lower <- round(x1[,3],2)
-	upper <- round(x1[,4],2)
+	expcoef <- round(x1[,1],1)
+	lower <- round(x1[,3],1)
+	upper <- round(x1[,4],1)
 	p <- x2[,5]
 	stars <- ifelse(p < 0.001, "***", ifelse(p < 0.01, "**", ifelse(p < 0.05, "*", ifelse(p < 0.1, ".", ""))))
 	results <- paste(expcoef, " (", lower, "-", upper, ")", stars, sep = "")
@@ -167,20 +170,48 @@ for (i in 1:ncovs) {
 space <- matrix(rep(0,8), 4, 2)
 adj_basic <- rbind(adj_basic, space)
 
-covariates3 <- c("status_packyrs", "bmivg6", "passm", "palevel", "age_group", "sex")
+covariates3 <- c("status_packyrs", "bmivg6", "passm", "palevel")
 ncovs <- length(covariates3)
 adj_SES <- NULL
 for (i in 1:ncovs) {
-	surv.mod <- coxph(formula(paste0("Surv.prot", "~", covariates3[i], "+", "income5", "+", "wealth5", "+", "sclass", "+", "educend")), data = elsa)
+	surv.mod <- coxph(formula(paste0("Surv.prot", "~", covariates3[i], "+", "income5", "+", "wealth5", "+", "sclass", "+", "educend", "+", "age_group", "+", "sex")), data = elsa)
 	surv.mod.out <- coxph.out(surv.mod)
-	surv.mod.out <- surv.mod.out[1:(nrow(surv.mod.out)-16),]
+	surv.mod.out <- surv.mod.out[1:(nrow(surv.mod.out)-20),]
 	adj_SES <- rbind(adj_SES, surv.mod.out)	
 }
-space <- matrix(rep(0,32), 16, 2)
-adj_SES <- rbind(adj_SES[1:6,], space, adj_SES[7:22,])
+space1 <- matrix(rep(0,32), 16, 2)
+space2 <- matrix(rep(0,8), 4, 2)
+adj_SES <- rbind(adj_SES[1:6,], space1, adj_SES[7:17,], space2)
 
 adj <- coxph(formula(paste("Surv.prot", "~", paste0(covariates1, collapse = "+"))), data = elsa)
 adj <- coxph.out(adj)
 
 full.out <- cbind(unadj, adj_basic[,2], adj_SES[,2], adj[,2])
 full.out <- data.frame(unadjusted = full.out[,2], age_sex_adj = full.out[,3], SES_adj = full.out[,4], fully_adj = full.out[,5], row.names = full.out[,1])
+write.csv(full.out, file = "elsa_results.csv")
+
+ns <- NULL
+ncovs <- length(covariates1)
+for (i in 1:ncovs){
+	x <- elsa[,grep(covariates1[i], names(elsa))]
+	x <- as.matrix(table(x))
+	ns <- rbind(ns, x)	
+}
+
+write.csv(ns, file = "elsa_ns.csv")
+
+# ** ROUGH **
+
+x <- with(elsa, table(palevel, income5))
+y <- t(matrix(rep(apply(x, 2, sum), 5), 6, 5))
+z <- x/y
+z <- z[c(1,5,4,3,2),] * 100
+colnames(z) <- c("5: highest\nincome", "4", "3", "2", "1: lowest\nincome", "missing")
+row.names(z)[5] <- "missing"
+cols <- brewer.pal(5, "BrBG")
+widths <- colSums(y)
+png("palevel_income5.png", width = 600, height = 600)
+par(xpd = TRUE, mar = c(5, 3, 3, 7))
+barplot(z, col = cols)
+legend("topright", inset = c(-0.19, 0), legend = rev(row.names(z)), fill = rev(cols), pt.cex = 1.5, pt.lwd = 1, box.lwd = 0)
+dev.off()

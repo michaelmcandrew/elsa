@@ -35,9 +35,6 @@ wave0 <- wave0[wave0$ager >= 50,]
 wave0 <- wave0[wave0$cigst1 >= 0,]
 wave0$sex <- as.factor(wave0$sex)
 wave0$sex <- revalue(wave0$sex, c("1" = "male", "2" = "female"))
-wave0$age_group <- findInterval(wave0$ager, c(50, 60, 70, 80))
-wave0$age_group <- as.factor(wave0$age_group)
-wave0$age_group <- revalue(wave0$age_group, c("1" = "50-59", "2" = "60-69", "3" = "70-79", "4" = "80+"))
 wave0$cigst1 <- as.character(wave0$cigst1)
 wave0$cigst1 <- revalue(wave0$cigst1, c("1" = "never", "2" = "ex", "3" = "ex", "4" = "current"))
 mean_start_age <- mean(wave0$startsmk[wave0$startsmk > 0]) #for missing data. crude
@@ -55,7 +52,7 @@ wave0$packyrs_grp <- findInterval(wave0$packyrs_all, c(0, 20, 40))
 wave0$packyrs_grp <- as.character(wave0$packyrs_grp)
 wave0$packyrs_grp <- revalue(wave0$packyrs_grp, c("1" = "<20", "2" = "20-40", "3" = "40+"))
 wave0$status_packyrs <- ifelse(wave0$cigst1 == "never", "never", paste0(wave0$cigst1, wave0$packyrs_grp))
-wave0$status_packyrs <- relevel(as.factor(wave0$status_packyrs), ref = "never")
+wave0$status_packyrs <- factor(wave0$status_packyrs, levels = c("never", "ex<20", "current<20", "ex20-40", "current20-40", "ex40+", "current40+"))
 wave0$educend <- as.factor(wave0$educend)
 wave0$educend <- revalue(wave0$educend, c("1" = "other", "2" = "U15", "3" = "U15", "4" = "15-16", "5" = "15-16", "6" = "17+", "7" = "17+", "8" = "17+", "-9" = "other", "-8" = "other"))
 wave0$educend <- relevel(as.factor(wave0$educend), ref = "17+")
@@ -105,8 +102,19 @@ elsa$wealth5 <- factor(elsa$wealth5, levels = c("5", "4", "3", "2", "1", "0"))
 income.missing <- is.na(elsa$income5)
 elsa$income5 <- as.factor(ifelse(income.missing, 0, elsa$income5))
 elsa$income5 <- factor(elsa$income5, levels = c("5", "4", "3", "2", "1", "0"))
-wave0.sub <- subset(wave0, select = c("idauniq", "sex", "ager", "age_group", "cigst1", "packyrs_all", "packyrs_grp", "status_packyrs", "startsmk", "educend", "sclass", "bmivg6", "passm"))
+wave0.sub <- subset(wave0, select = c("idauniq", "sex", "cigst1", "packyrs_all", "packyrs_grp", "status_packyrs", "startsmk", "educend", "sclass", "bmivg6", "passm"))
 elsa <- merge(elsa, wave0.sub, by = "idauniq")
+accom <- subset(wave1, select = c("hopro01", "hopro02", "hopro03", "hopro04", "hopro05", "hopro06", "hopro07", "hopro08", "hopro09", "hopro10"))
+resp_probs <- c(5, 6, 8, 10, 12)
+accom.probs <- t(apply(accom, 1, function(x) resp_probs %in% x))
+wave1.accom <- data.frame(idauniq = wave1$idauniq, accomprobs = ifelse(rowSums(accom.probs) > 0, 1, 0))
+elsa <- merge(elsa, wave1.accom, by = "idauniq")
+elsa$accomprobs <- as.factor(elsa$accomprobs)
+wave1.age <- data.frame(idauniq = wave1$idauniq, ager = wave1$indager)
+wave1.age$age_group <- findInterval(wave1.age$ager, c(50, 60, 70, 80))
+wave1.age$age_group <- as.factor(wave1.age$age_group)
+wave1.age$age_group <- revalue(wave1.age$age_group, c("1" = "50-59", "2" = "60-69", "3" = "70-79", "4" = "80+"))
+elsa <- merge(elsa, wave1.age, by = "idauniq")
 
 sclass.missing <- is.na(elsa$sclass)
 elsa$sclass <- as.factor(ifelse(sclass.missing, "0", as.character(elsa$sclass)))
@@ -125,6 +133,36 @@ elsa$palevel <- revalue(as.factor(elsa$palevel), c("-8" = "0", "-6" = "0", "-1" 
 elsa$palevel <- relevel(elsa$palevel, ref = "high")
 
 elsa$passm <- (factor(elsa$passm, levels = c("no", "yes")))
+
+# WIP: adding diet??
+
+tracker$w4to6 <- ifelse(tracker$wave4 + tracker$wave5 + tracker$wave6 > 0, 1, 0)
+with(tracker, table(wave1, w4to6))
+
+# describe smoking by SES
+
+meanci <- function(x, a = 0.975) {
+	m <- mean(x)
+	n <- length(x)
+	s <- sd(x)
+	SE <- s/sqrt(n)
+	t <- qt(a, df = n-1)
+	int <- t * SE
+	return(c(m, m - int, m + int))
+}
+
+wealth_means <- as.matrix(aggregate(elsa$packyrs_all, by = list(elsa$wealth5), FUN = meanci))
+wealth_means <- wealth_means[,2:4]
+wealth_means.all <- t(as.matrix(meanci(elsa$packyrs_all)))
+wealth_means <- rbind(wealth_means, wealth_means.all)
+wealth_means <- data.frame(mean = as.numeric(wealth_means[,1]), ci_l = as.numeric(wealth_means[,2]), ci_u = as.numeric(wealth_means[,3]), row.names = c(5:1, "missing", "total"))
+
+par(mar=c(7,3,3,3))
+y <- barplot(as.numeric(wealth_means$mean), names.arg = row.names(wealth_means), las = 2, ylim = c(0, 25))
+segments(y, as.numeric(wealth_means$ci_u), y, as.numeric(wealth_means$ci_l), lwd = 2)
+segments(y - 0.3, as.numeric(wealth_means$ci_l), y + 0.3, as.numeric(wealth_means$ci_l), lwd=1)
+segments(y - 0.3, as.numeric(wealth_means$ci_u), y + 0.3, as.numeric(wealth_means$ci_u), lwd=1)
+
 
 # prototype survival analysis. Cox's model allows for time-dependent covariates (e.g. smoking status at each follow-up). However, historical smoking is likely to be a bigger cause of disease than smoking within the follow-up survey year, so this was used as the smoking measure. Does this seem right?
 
@@ -149,7 +187,7 @@ coxph.out <- function(model) {
 	return(cbind(row.names(x1), results))
 }
 
-covariates1 <- c("status_packyrs", "income5", "wealth5", "sclass", "educend", "bmivg6", "passm", "palevel", "age_group", "sex")
+covariates1 <- c("status_packyrs", "income5", "wealth5", "sclass", "educend", "bmivg6", "passm", "palevel", "accomprobs", "age_group", "sex")
 ncovs <- length(covariates1)
 unadj <- NULL
 for (i in 1:ncovs) {
@@ -158,7 +196,7 @@ for (i in 1:ncovs) {
 	unadj <- rbind(unadj, surv.mod.out)	
 }
 
-covariates2 <- c("status_packyrs", "income5", "wealth5", "sclass", "educend", "bmivg6", "passm", "palevel")
+covariates2 <- c("status_packyrs", "income5", "wealth5", "sclass", "educend", "bmivg6", "passm", "palevel", "accomprobs")
 ncovs <- length(covariates2)
 adj_basic <- NULL
 for (i in 1:ncovs) {
@@ -170,7 +208,7 @@ for (i in 1:ncovs) {
 space <- matrix(rep(0,8), 4, 2)
 adj_basic <- rbind(adj_basic, space)
 
-covariates3 <- c("status_packyrs", "bmivg6", "passm", "palevel")
+covariates3 <- c("status_packyrs", "bmivg6", "passm", "palevel", "accomprobs")
 ncovs <- length(covariates3)
 adj_SES <- NULL
 for (i in 1:ncovs) {
@@ -181,7 +219,7 @@ for (i in 1:ncovs) {
 }
 space1 <- matrix(rep(0,32), 16, 2)
 space2 <- matrix(rep(0,8), 4, 2)
-adj_SES <- rbind(adj_SES[1:6,], space1, adj_SES[7:17,], space2)
+adj_SES <- rbind(adj_SES[1:6,], space1, adj_SES[7:18,], space2)
 
 adj <- coxph(formula(paste("Surv.prot", "~", paste0(covariates1, collapse = "+"))), data = elsa)
 adj <- coxph.out(adj)
@@ -201,6 +239,8 @@ for (i in 1:ncovs){
 write.csv(ns, file = "elsa_ns.csv")
 
 # ** ROUGH **
+
+# describe smoking by SES
 
 x <- with(elsa, table(palevel, income5))
 y <- t(matrix(rep(apply(x, 2, sum), 5), 6, 5))

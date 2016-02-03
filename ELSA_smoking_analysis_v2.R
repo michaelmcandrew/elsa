@@ -5,23 +5,25 @@ library(dplyr) # for 'mutate'
 library(survival) # for hazard models
 library(RColorBrewer) # for colouring in charts 
 
-# import. Waves 3-6 are not used except in the 'tracker' showing which each individual responded to.
+# IMPORT
+# wave 0/1: baseline data. wave 4/5/6 diet data
 
 wave0_1998 <- read.table("wave_0_1998_data.tab", sep="\t", header = T)
 wave0_1999 <- read.table("wave_0_1999_data.tab", sep="\t", header = T)
 wave0_2001 <- read.table("wave_0_2001_data.tab", sep="\t", header = T)
 wave1 <- read.table("wave_1_core_data_v3.tab", sep="\t", header = T)
 wave1.fin <- read.table("wave_1_financial_derived_variables.tab", sep="\t", header = T)
-wave1.edu <- read.csv("elsa_w1_education.csv", sep =",", header = T)
-wave2 <- read.table("wave_2_core_data_v4.tab", sep="\t", header = T)
-wave2.der <- read.table("wave_2_derived_variables.tab", sep="\t", header = T)
-wave3 <- read.table("wave3_subset.txt", sep="\t", header = T)
+# wave1.edu <- read.csv("elsa_w1_education.csv", sep =",", header = T)
+# wave2 <- read.table("wave_2_core_data_v4.tab", sep="\t", header = T)
+# wave2.der <- read.table("wave_2_derived_variables.tab", sep="\t", header = T)
+# wave3 <- read.table("wave3_subset.txt", sep="\t", header = T)
 wave4 <- read.table("wave_4_elsa_data_v3.tab", sep="\t", header = T)
 wave5 <- read.table("wave_5_elsa_data_v4.tab", sep="\t", header = T)
 wave6 <- read.table("wave_6_elsa_data_v2.tab", sep="\t", header = T)
-index_file <- read.table("index_file_wave_0-wave_5_v2.tab", sep="\t", header = T)
+# index_file <- read.table("index_file_wave_0-wave_5_v2.tab", sep="\t", header = T)
+mort <- read.table("Mortality_update_2013.txt", sep="\t", header = T)
 
-# create wave0 dataset
+# CREATE WAVE 0 DATASET. NS-SEC not available in 1998 & 1999, so used social class I - V
 
 wave0_1998_sub <- subset(wave0_1998, select = c("idauniq", "ager", "sex", "cigdyal", "numsmok", "smokyrs", "endsmoke", "cigst1", "startsmk", "sclass", "bmivg6", "passm"))
 wave0_1998_sub$year <- rep(1998, nrow(wave0_1998_sub))
@@ -59,37 +61,32 @@ wave0$sclass <- revalue(wave0$sclass, c("1" = "I-II", "2" = "I-II", "3" = "III-N
 wave0$bmivg6 <- revalue(as.factor(wave0$bmivg6), c("-1" = "0", "1" = "<20", "2" = "20-25", "3" = "25-30", "4" = "30-35", "5" = "35-40", "6" = "40+"))
 wave0$bmivg6 <- relevel(wave0$bmivg6, ref = "20-25")
 wave0$passm <- revalue(as.factor(wave0$passm), c("-9" = "0", "1" = "yes", "2" = "no"))
-wave0$passm <- relevel(wave0$passm, ref = "no")
+wave0$passm <- factor(wave0$passm, levels = c("no", "yes"))
 
-# track participation in surveys
+# CREATE ANALYSIS DATASET
 
-ids <- unique(c(wave0$idauniq, wave1$idauniq, wave2$idauniq, wave3$idauniq, wave4$idauniq, wave5$idauniq, wave6$idauniq))
-ids0 <- ids %in% wave0$idauniq
-ids1 <- ids %in% wave1$idauniq
-ids2 <- ids %in% wave2$idauniq
-ids3 <- ids %in% wave3$idauniq
-ids4 <- ids %in% wave4$idauniq
-ids5 <- ids %in% wave5$idauniq
-ids6 <- ids %in% wave6$idauniq
-ids_index <- ids %in% index_file$idauniq
-tracker <- data.frame(idauniq = ids, wave0 = ids0, wave1 = ids1, wave2 = ids2, wave3 = ids3, wave4 = ids4, wave5 = ids5, wave6 = ids6, index = ids_index)
-tracker$numwaves <- tracker$wave0 + tracker$wave1 + tracker$wave2 + tracker$wave3 + tracker$wave4 + tracker$wave5 + tracker$wave6
+# Select cases. 1857 wave 1 participants do not have have wave 0 data.
+# Wave 1 - 12099. 
+#   finstat: C1CM = core sample (11391): individuals in household aged 50+
+#            C1YM = young partners (636): partners aged under 50
+#            C1NP1 = new partners (72): partners joined household since HSE wave 0
+# 1149 core members with no wave0 data
 
-index_file_subset <- data.frame(idauniq = index_file$idauniq, mortstat = index_file$mortstat, yrdeath = index_file$yrdeath, mortwave = index_file$mortwave, maincod = index_file$maincod)
-tracker <- merge(tracker, index_file_subset, by = "idauniq")
-tracker$mortwave <- as.character(tracker$mortwave)
+elsa <- data.frame(idauniq = intersect(wave0$idauniq, wave1$idauniq))
 
-tracker$mortwave <- revalue(tracker$mortwave, c("0" = -1, "11" = 0, "12" = 0, "13" = 0, "21" = 1, "22" = 1, "23" = 1, "31" = 2, "32" = 2, "33" = 2, "41" = 3, "42" = 3, "43" = 3, "51" = 4, "52" = 4, "53" = 4, "61" = 5, "63" = 5)) #mortwave now shows which wave they died after
-tracker <- mutate(tracker, finalyear = max.col(tracker[2:8], 'last'), streak = rowSums(tracker[2:8]) == finalyear)
-tracker$finalyear <- tracker$finalyear - 1
-tracker$mortcomplete <- ifelse((tracker$mortwave == tracker$finalyear) & tracker$streak == TRUE, 1, 0)
-tracker$complete <- ifelse(tracker$mortcomplete == 1 | tracker$numwaves == 7, 1, 0)
+# wave 0 data
 
-# create dataset for analysis: age, sex, ethnicity (NOT YET INCLUDED), SES measures, current smoking, pack-years, age started, age stopped, mortstat, maincod, mortwave; ARE THERE FURTHER SES-RELATED FACTORS?
+wave0.sub <- subset(wave0, select = c("idauniq", "sex", "cigst1", "packyrs_all", "packyrs_grp", "status_packyrs", "startsmk", "sclass", "bmivg6", "passm"))
+elsa <- merge(elsa, wave0.sub, by = "idauniq")
+sclass.missing <- is.na(elsa$sclass)
+elsa$sclass <- as.factor(ifelse(sclass.missing, "0", as.character(elsa$sclass)))
+elsa$sclass <- factor(elsa$sclass, levels = c("I-II", "III-NM", "III-M", "IV-V", "0"))
+bmi.missing <- is.na(elsa$bmivg6)
+elsa$bmivg6 <- as.factor(ifelse(bmi.missing, "0", as.character(elsa$bmivg6)))
+elsa$bmivg6 <- factor(elsa$bmivg6, levels = c("20-25", "<20", "25-30", "30-35", "35-40", "40+", "0"))
 
-tracker2 <- tracker[tracker$wave1 == T,] #only those in Wave 1
-elsa <- data.frame(idauniq = tracker2$idauniq, wave0 = tracker2$wave0)
-elsa <- elsa[elsa$wave0 == T,] #remove those not in wave 0 - REMOVES 2,000??
+# wave 1 financial variables
+
 fin <- subset(wave1.fin, select = c("idauniq", "nfwq5_bu_s", "yq5_bu_s")) #wealth quintile, income quintile
 names(fin)[grep("nfwq5_bu_s", names(fin))] <- "wealth5"
 names(fin)[grep("yq5_bu_s", names(fin))] <- "income5"
@@ -100,36 +97,39 @@ elsa$wealth5 <- factor(elsa$wealth5, levels = c("5", "4", "3", "2", "1", "0"))
 income.missing <- is.na(elsa$income5)
 elsa$income5 <- as.factor(ifelse(income.missing, 0, elsa$income5))
 elsa$income5 <- factor(elsa$income5, levels = c("5", "4", "3", "2", "1", "0"))
-wave0.sub <- subset(wave0, select = c("idauniq", "sex", "cigst1", "packyrs_all", "packyrs_grp", "status_packyrs", "startsmk", "educend", "sclass", "bmivg6", "passm"))
-elsa <- merge(elsa, wave0.sub, by = "idauniq")
+
+# wave 1 data
+
+wave1.sub <- subset(wave1, select = c("idauniq", "indager", "edqual"))
+wave1.sub$age_group <- as.factor(findInterval(wave1.sub$indager, c(50, 60, 70, 80)))
+wave1.sub$age_group <- revalue(wave1.sub$age_group, c("1" = "50-59", "2" = "60-69", "3" = "70-79", "4" = "80+"))
+wave1.sub$topqual <- revalue(as.factor(wave1.sub$edqual), c("1" = "he", "2" = "he", "3" = "alevel", "4" = "olevel", "5" = "below_olevel", "7" = "none", "6" = "other", "-9" = "missing", "-8" = "missing", "-1" = "missing"))
+wave1.sub$topqual <- factor(wave1.sub$topqual, levels = c("he", "alevel", "olevel", "below_olevel", "none", "other", "missing"))
+wave1.sub <- subset(wave1.sub, select = c("idauniq", "age_group", "topqual"))
+elsa <- merge(elsa, wave1.sub, by = "idauniq")
+
 accom <- subset(wave1, select = c("hopro01", "hopro02", "hopro03", "hopro04", "hopro05", "hopro06", "hopro07", "hopro08", "hopro09", "hopro10"))
-resp_probs <- c(5, 6, 8, 10, 12)
-accom.probs <- t(apply(accom, 1, function(x) resp_probs %in% x))
+probs <- c(5, 6, 8, 10, 12)
+accom.probs <- t(apply(accom, 1, function(x) probs %in% x))
 wave1.accom <- data.frame(idauniq = wave1$idauniq, accomprobs = ifelse(rowSums(accom.probs) > 0, 1, 0))
 elsa <- merge(elsa, wave1.accom, by = "idauniq")
 elsa$accomprobs <- as.factor(elsa$accomprobs)
-wave1.age <- data.frame(idauniq = wave1$idauniq, ager = wave1$indager)
-wave1.age$age_group <- findInterval(wave1.age$ager, c(50, 60, 70, 80))
-wave1.age$age_group <- as.factor(wave1.age$age_group)
-wave1.age$age_group <- revalue(wave1.age$age_group, c("1" = "50-59", "2" = "60-69", "3" = "70-79", "4" = "80+"))
-elsa <- merge(elsa, wave1.age, by = "idauniq")
-edu <- data.frame(idauniq = wave1.edu$idauniq, edu = wave1.edu$qual3)
-edu$edu <- revalue(edu$edu, c("higher than a-level" = "a-level+", "o-level or equivalent" = "o-level", "less than o-level or equiv" = "below o-level", "don't know" = "missing", "not asked" = "missing", "refused" = "missing"))
-edu$edu <- factor(edu$edu, levels = c("a-level+", "o-level", "below o-level", "missing"))
 
-sclass.missing <- is.na(elsa$sclass)
-elsa$sclass <- as.factor(ifelse(sclass.missing, "0", as.character(elsa$sclass)))
-elsa$sclass <- factor(elsa$sclass, levels = c("I-II", "III-NM", "III-M", "IV-V", "0"))
+# deaths
 
-bmi.missing <- is.na(elsa$bmivg6)
-elsa$bmivg6 <- as.factor(ifelse(bmi.missing, "0", as.character(elsa$bmivg6)))
-elsa$bmivg6 <- factor(elsa$bmivg6, levels = c("20-25", "<20", "25-30", "30-35", "35-40", "40+", "0"))
+deaths <- subset(mort, select = c("idauniq", "doDmnth", "dodyr", "agedeath2", "maincod", "icd9chl", "icd10chl"))
+# create month of death variable
+deaths$doDmnth <- ifelse(is.na(deaths$doDmnth), 6, deaths$doDmnth) # 20 NAs - replace with 6 (halfway through the year)
+deaths$do.month <- ((deaths$dodyr - 2002) * 12) + deaths$doDmnth
+# create smoking related death variable
+smk.death.10 <- ifelse(deaths$icd10chl == "Lung cancer" | deaths$icd10chl == "Chronic obstructive pulmonary disease", 1, 0)
+smk.death.9 <- ifelse(deaths$icd9chl == "Lung cancer" | deaths$icd9chl == "Chronic obstructive pulmonary disease", 1, 0)
+deaths$smk.death <- ifelse(smk.death.9 == 1 | smk.death.10 == 1, 1, 0)
+deaths <- subset(deaths, select = c("idauniq", "do.month", "smk.death"))
+elsa <- merge(elsa, deaths, by = "idauniq", all.x = T)
+# elsa <- elsa[elsa$idauniq != 104145,] # this case is weird - mortstat = 2 (i.e. dead), yrdeath = -2 (i.e. info not avaialble)
 
-deaths <- subset(index_file, select = c("idauniq", "mortstat", "maincod", "yrdeath"))
-elsa <- merge(elsa, deaths, by = "idauniq")
-elsa <- elsa[elsa$idauniq != 104145,] # this case is weird - mortstat = 2 (i.e. dead), yrdeath = -2 (i.e. info not avaialble)
-
-elsa$passm <- (factor(elsa$passm, levels = c("no", "yes")))
+# physical activity - derive from wave 1 questions
 
 o.pa1 <- wave1$heacta
 o.pa2 <- wave1$heactb
@@ -149,7 +149,7 @@ pa <- factor(revalue(pa, c("0" = "sedentary", "1" = "low", "2" = "moderate", "3"
 wave1.pa <- data.frame(idauniq = wave1$idauniq, palevel = pa)
 elsa <- merge(elsa, wave1.pa, by = "idauniq")
 
-# diet
+# diet - derive from wave 4, 5 or 6 (earliest wave for those participating in more than 1)
 
 attach(wave4)
 w4porsal <- ifelse(scvega >= 0, scvega, NA)
@@ -202,7 +202,11 @@ elsa$ftvg <- apply(elsa[,(p-2):p], 1, mean, na.rm = T)
 elsa$ftvg <- findInterval(elsa$ftvg, 0:8)
 elsa <- subset(elsa, select = -c(ftvg_4, ftvg_5, ftvg_6))
 
-# describe smoking by SES
+ftvg.missing <- is.na(elsa$ftvg)
+elsa$ftvg <- as.factor(ifelse(ftvg.missing, 0, elsa$ftvg))
+elsa$ftvg <- factor(elsa$ftvg, levels = c("9", "8", "7", "6", "5", "4", "3", "2", "1", "0"))
+
+# DESCRIBE SMOKING BY SES
 
 meanci <- function(x, a = 0.975) {
 	m <- mean(x)
@@ -303,7 +307,6 @@ write.csv(ns, file = "elsa_ns.csv")
 
 # ** ROUGH **
 
-
 # describe physical activity by income
 
 x <- with(elsa, table(palevel, income5))
@@ -330,10 +333,9 @@ meansd <- function(x, d = 1) {
 
 sa <- aggregate(elsa$packyrs_all, by = list(elsa$income5), FUN = meansd)
 sb <- aggregate(elsa$packyrs_all, by = list(elsa$wealth5), FUN = meansd)
-sc <- aggregate(elsa$packyrs_all, by = list(elsa$educend), FUN = meansd)
+sc <- aggregate(elsa$packyrs_all, by = list(elsa$topqual), FUN = meansd)
 sd <- aggregate(elsa$packyrs_all, by = list(elsa$sclass), FUN = meansd)
 s.sum <- rbind(sa, sb, sc, sd)
-
 
 pdf("smoking_boxplots.pdf")
 
@@ -362,7 +364,5 @@ op <- par(oma = c(3, 3, 3, 0), mfrow = c(2, 2), cex = 1, mar = c(2, 0, 0, 0), xp
 
 plot(packyrs_chart ~ elsa_smokers$income5, , ylim = c(0, ymax))
 plot(packyrs_chart ~ elsa_smokers$wealth5, ylim = c(0, ymax))
-plot(packyrs_chart ~ elsa_smokers$educend, ylim = c(0, ymax))
+plot(packyrs_chart ~ elsa_smokers$topqual, ylim = c(0, ymax))
 plot(packyrs_chart ~ elsa_smokers$sclass, ylim = c(0, ymax))
-
-

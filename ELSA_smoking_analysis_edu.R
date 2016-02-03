@@ -100,7 +100,7 @@ elsa$wealth5 <- factor(elsa$wealth5, levels = c("5", "4", "3", "2", "1", "0"))
 income.missing <- is.na(elsa$income5)
 elsa$income5 <- as.factor(ifelse(income.missing, 0, elsa$income5))
 elsa$income5 <- factor(elsa$income5, levels = c("5", "4", "3", "2", "1", "0"))
-wave0.sub <- subset(wave0, select = c("idauniq", "sex", "cigst1", "packyrs_all", "packyrs_grp", "status_packyrs", "startsmk", "educend", "sclass", "bmivg6", "passm"))
+wave0.sub <- subset(wave0, select = c("idauniq", "sex", "cigst1", "packyrs_all", "packyrs_grp", "status_packyrs", "startsmk", "sclass", "bmivg6", "passm"))
 elsa <- merge(elsa, wave0.sub, by = "idauniq")
 accom <- subset(wave1, select = c("hopro01", "hopro02", "hopro03", "hopro04", "hopro05", "hopro06", "hopro07", "hopro08", "hopro09", "hopro10"))
 resp_probs <- c(5, 6, 8, 10, 12)
@@ -116,6 +116,7 @@ elsa <- merge(elsa, wave1.age, by = "idauniq")
 edu <- data.frame(idauniq = wave1.edu$idauniq, edu = wave1.edu$qual3)
 edu$edu <- revalue(edu$edu, c("higher than a-level" = "a-level+", "o-level or equivalent" = "o-level", "less than o-level or equiv" = "below o-level", "don't know" = "missing", "not asked" = "missing", "refused" = "missing"))
 edu$edu <- factor(edu$edu, levels = c("a-level+", "o-level", "below o-level", "missing"))
+elsa <- merge(elsa, edu, by = "idauniq")
 
 sclass.missing <- is.na(elsa$sclass)
 elsa$sclass <- as.factor(ifelse(sclass.missing, "0", as.character(elsa$sclass)))
@@ -214,7 +215,7 @@ meanci <- function(x, a = 0.975) {
 	return(c(m, m - int, m + int))
 }
 
-wealth_means <- as.matrix(aggregate(elsa$packyrs_all, by = list(elsa$wealth5), FUN = meanci))
+wealth_means <- as.matrix(`aggregate`(elsa$packyrs_all, by = list(elsa$wealth5), FUN = meanci))
 wealth_means <- wealth_means[,2:4]
 wealth_means.all <- t(as.matrix(meanci(elsa$packyrs_all)))
 wealth_means <- rbind(wealth_means, wealth_means.all)

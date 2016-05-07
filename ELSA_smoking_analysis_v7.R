@@ -96,6 +96,7 @@ wave0$passm <- factor(ifelse(wave0$passm < 0, NA, wave0$passm), levels = c(1, 2)
 
 wave0$eqvinc <- ifelse(wave0$eqvinc < 0, NA, wave0$eqvinc)
 wave0$eqv5 <- quant(wave0$eqvinc, 5) # NEEDS TO BE FOR EACH YEAR SEPERATELY
+wave0$eqv3 <- quant(wave0$eqvinc, 3)
 wave0$eqvRII <- RII(wave0$eqvinc)
 
 ed_ordered <- recode(wave0$topqual3, c(-1, 1:7), c(NA, 1:5, NA, 6))
@@ -255,6 +256,15 @@ elsa$smk.death2 <- ifelse(is.na(elsa$smk.death), 0, elsa$smk.death) # alive or d
 elsa$survival <- with(elsa, (dodyr - iintdty) * 12 + (doDmnth - iintdtm))
 elsa$survival <- ifelse(is.na(elsa$survival), (2013 - elsa$iintdty) * 12 + (4 - elsa$iintdtm), elsa$survival) # end of study is April 2013
 
+# add variables for censoring at age 70
+
+c.age <- 70
+wave0$year.c <- wave0$yintb + c.age - wave0$indager
+wave0$surv.c <- (wave0$year.c - wave0$yintb + 1) * 12
+wave0$surv.c <- ifelse(wave0$surv.c < 0, 0, wave0$surv.c)
+wave0$surv.a <- pmin(wave0$surv.c, wave0$survival)
+wave0$smk.death3 <- ifelse(wave0$surv.c < wave0$survival, 0, wave0$smk.death2)
+
 # basic epi measures by current status
 
 #risk ratios
@@ -282,17 +292,6 @@ tab_all <- cbind(smk_deaths, years_at_risk)[,-c(1, 3)]
 rownames(tab_all) <- c("Higher", "Middle", "Lower")
 epitab(as.matrix(tab_all), method = "rateratio")
 
-#survival model prototype
-
-Surv.prot <- Surv(elsa$survival, event = elsa$all.cause.death, type = "right")
-model <- coxph(Surv.prot ~ cigst1 + wealth5 + indager + sex, data = elsa)
-summary(model)
-Surv.prot <- Surv(elsa$survival, event = elsa$smk.death2, type = "right")
-model <- coxph(Surv.prot ~ cigst1 + wealth5 + indager + sex, data = elsa)
-summary(model)
-
-model <- coxph(Surv.prot ~ cigst1*wealth5 + indager + sex, data = elsa)
-
 # generate smoking exposure variables
 
 elsa$duration <- ifelse(elsa$cigst1 == "current", elsa$indager - elsa$startsmk, ifelse(elsa$cigst1 == "ex", elsa$indager - (elsa$startsmk + elsa$endsmoke), 0)) 
@@ -301,7 +300,7 @@ elsa$packyrs <- (elsa$duration * elsa$intensity)/20
 
 wave0$duration <- ifelse(wave0$cigst1 == "current", wave0$indager - wave0$startsmk, ifelse(wave0$cigst1 == "ex", wave0$indager - (wave0$startsmk + wave0$endsmoke), 0)) 
 wave0$intensity <- ifelse(wave0$cigst1 == "never", 0, ifelse(wave0$cigdyal == 0, wave0$numsmok, wave0$cigdyal))
-wave0$packyrs <- (wave0$duration * wave0$intensity)/400
+wave0$packyrs <- (wave0$duration * wave0$intensity)/20
 wave0$logcigyrs <- (log(wave0$intensity + 1) * wave0$duration) / 100
 wave0$sqrtpys <- sqrt(wave0$packyrs)
 
@@ -336,9 +335,9 @@ x.l <- lapply(measures, compsurv, dat = wave0)
 AICs <- sapply(x.l, extractAIC)
 zphs <- lapply(x.l, cox.zph)
 resds <- lapply(x.l, resid, type = "score")
-op <- par(oma = c(0, 0, 0, 0), mfrow = c(3, 2), cex = 1, mar = c(2, 2, 2, 2), xpd = TRUE)
+op <- par(oma = c(0, 0, 0, 0), mfrow = c(3, 2), cex = 1, mar = c(2, 2, 2, 2), xpd = TRUE, cex = 0.7)
 for (i in 1:length(measures)) {
-	plot(wave0$survival[!is.na(wave0[,measures[i]])], resds[[i]][,1], main = measures[i])	
+	plot(wave0$survival[!is.na(wave0[,measures[i]])], resds[[i]][,1], main = measures[i], pch = ".")	
 }
 
 # stratified survival prototype
@@ -348,11 +347,11 @@ stsurv <- function(dat) {
 	return(coxph(surv.prot ~ CSI + indager + sex, data = dat))
 }
 
-x.l <- split(wave0, f = wave0$sclass)
+x.l <- split(wave0, f = wave0$cSES3)
 tmp <- lapply(x.l, FUN = stsurv)
 
 tmpdat <- wave0[!is.na(wave0$CSI),]
-x.l <- split(tmpdat, f = tmpdat$sclass)
+x.l <- split(tmpdat, f = tmpdat$cSES3)
 tmp2 <- lapply(x.l, FUN = stsurv)
 
 
